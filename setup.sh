@@ -1,6 +1,9 @@
 #!/bin/bash
-# Requires an archlinux install with full base group. Can be run any
-# number of times and will always produce the same system.
+# Requires an archlinux install with full base group. Assumed to be
+# installed on an lvm system where the volume group is named "lvm"
+# (without the quotes), `vgrename' can be used to change an existing
+# system over. Can be run any number of times and will always produce
+# the same system.
 
 # query for configuration
 read -r -p 'Are we running as a portable machine? [y/N]' portable
@@ -44,20 +47,25 @@ sed -i '/HOOKS=/s/autodetect block/autodetect modconf sd-lvm2 sd-encrypt sd-vcon
 
 # luks and lvm, make sure to secure the keyfile (including the boot
 # directory)
-keyfilename="crypto_keyfile.bin" # compatibility
-if ! [ -f $keyfilename ]; then
+keyfilename="crypto_keyfile.bin" # compatibility with arch encrypt
+				 # hook
+if ! [ -e $keyfilename ]; then
     touch $keyfilename
     chmod 600 $keyfilename
     head -c 4096 /dev/random > $keyfilename
-    cryptsetup luksAddKey /dev/mapper/lvm-root $keyfilename
+else
+    chmod 600 $keyfilename
 fi
 chmod 700 boot
-if [ "$graphical" = y ]; then
-    sed -i "/FILES=/s/()/(\"/$keyfilename\")/" etc/mkinitcpio.conf
-    sed -i '/GRUB_ENABLE_CRYPTODISK/{s/^#//;s/=n/=y}' etc/default/grub
-    table_add etc/crypttab.initramfs root /dev/mapper/lvm-root /$keyfilename
-else
-    table_add etc/crypttab.initramfs root /dev/mapper/lvm-root
+if cryptsetup isLuks /dev/mapper/lvm-root; then
+    cryptsetup luksAddKey /dev/mapper/lvm-root $keyfilename
+    if [ "$graphical" = y ]; then
+	sed -i "/FILES=/s/()/(\"/$keyfilename\")/" etc/mkinitcpio.conf
+	sed -i '/GRUB_ENABLE_CRYPTODISK/{s/^#//;s/=n/=y}' etc/default/grub
+	table_add etc/crypttab.initramfs root /dev/mapper/lvm-root /$keyfilename
+    else
+	table_add etc/crypttab.initramfs root /dev/mapper/lvm-root
+    fi
 fi
 
 # hibernate/swap space
