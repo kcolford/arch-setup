@@ -11,7 +11,7 @@ graphical=y
 
 # basics
 cd / || exit
-pacman="$pacman --noconfirm --needed"
+pacman="pacman --noconfirm --needed"
 $pacman -Syu grub intel-ucode
 
 table_add() {
@@ -23,7 +23,7 @@ table_add() {
 }
 
 # locale
-sed -i '/en_US\.UTF-8/s/^#//' etc/locale.gen
+sed -i '1,24{p;d};/en_US\.UTF-8/s/^#//' etc/locale.gen
 locale-gen
 if ! [ -f etc/locale.conf ]; then
     echo LANG=en_US.UTF-8 > etc/locale.conf
@@ -43,7 +43,7 @@ ln -sf usr/share/zoneinfo/Canada/Eastern etc/localtime
 # systemd initramfs
 sed -i '/HOOKS=/s/udev //' etc/mkinitcpio.conf
 sed -i '/HOOKS=/s/base autodetect/base systemd autodetect/' etc/mkinitcpio.conf
-sed -i '/HOOKS=/s/autodetect block/autodetect modconf sd-lvm2 sd-encrypt sd-vconsole block/' etc/mkinitcpio.conf
+sed -i '/HOOKS=/s/modconf block/modconf sd-lvm2 sd-encrypt sd-vconsole block/' etc/mkinitcpio.conf
 
 # luks and lvm, make sure to secure the keyfile (including the boot
 # directory)
@@ -117,15 +117,18 @@ chmod 440 /etc/sudoers.d/wheel
 
 # build user (system user without a home directory and can sudo
 # without a password)
-useradd --system -d /var/empty build
+useradd --system -m build
 echo 'build ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/build
+sudo -u build touch ~build/.gnupg/gpg.conf
+chmod 600 ~build/.gnupg/gpg.conf
+table_add ~build/.gnupg/gpg.conf auto-key-retrieve
 
 # aur
 $pacman -S base-devel git
 aur_install() {
     local package="$1"
     local dir
-    dir="$(mktemp -d)"
+    dir="$(sudo -u build mktemp -d)"
     shift
     pushd "$dir" || return
     sudo -u build git clone https://aur.archlinux.org/"$package"
@@ -141,6 +144,7 @@ aur_install cower
 aur_install pacaur
 
 # keep the package cache clean
+mkdir etc/pacman.d/hooks
 cat > etc/pacman.d/hooks/clean-cache.hook <<EOF
 [Trigger]
 Operation = Upgrade
@@ -157,10 +161,10 @@ EOF
 
 # rebuild everything
 grub-mkconfig -o boot/grub/grub.cfg
-if ls /sys/firmware/efi/efivars/; then
+if ls /sys/firmware/efi/efivars/ > /dev/null; then
     grub-install
 fi
 mkinitcpio -P
 hwclock --systohc
 $pacman -Syyuu
-$pacman -Fy
+pacman -Fy
