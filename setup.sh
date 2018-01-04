@@ -8,8 +8,6 @@
 #
 # shellcheck disable=SC2154
 
-set -e
-
 read_def() {
     local msg="$1" var="$2" default
     if default="$(expr "$var" : '.*=\(.*\)')"; then
@@ -19,6 +17,8 @@ read_def() {
 	default="${!var}"
     fi
     if [ "$0" != bash ]; then
+	# If this script is being streamed through stdin then don't
+	# read input (we'll just read parts of the script).
 	read -erp "$msg (default: $default): " "$var"
     fi
     eval "$var"="${!var:-$default}"
@@ -131,9 +131,10 @@ echo '%wheel ALL=(ALL:ALL) ALL' > /etc/sudoers.d/wheel
 # basically root)
 useradd --system -m build
 echo 'build ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/build
-sudo -u build mkdir -pm600 ~build/.gnupg/
-sudo -u build touch ~build/.gnupg/gpg.conf
+mkdir -p ~build/.gnupg/
 table_add ~build/.gnupg/gpg.conf auto-key-retrieve
+chown -R build:build ~build/.gnupg/
+chmod 700 ~build/.gnupg/
 
 # aur
 $pacman -S base-devel git
@@ -189,8 +190,8 @@ if [ -e /dev/mapper/lvm-swap ]; then
 fi
 
 # keep the package cache clean
-mkdir etc/pacman.d/hooks
-cat > etc/pacman.d/hooks/clean-cache.hook <<_EOF
+mkdir /etc/pacman.d/hooks
+cat > /etc/pacman.d/hooks/clean-cache.hook <<_EOF
 [Trigger]
 Operation = Upgrade
 Operation = Install
@@ -214,4 +215,7 @@ hwclock --systohc
 $pacman -Syu
 pacman -Fy
 chmod 440 /etc/sudoers.d/*
-visudo -c
+visudo -c || exit
+
+echo "You may have to run grub-install on one of the disks."
+echo "You 
