@@ -8,6 +8,8 @@
 #
 # shellcheck disable=SC2154
 
+set -e
+
 read_def() {
     local msg="$1" var="$2" default
     if default="$(expr "$var" : '.*=\(.*\)')"; then
