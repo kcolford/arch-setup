@@ -17,20 +17,20 @@ read_def() {
     else
 	default="${!var}"
     fi
-    read -erp "$msg (default: $default): " "$var"
-    eval "$var=\${$var:-$default}"
+    if [ "$0" != bash ]; then
+	# only read from stdin if we're not being run from stdin
+	read -erp "$msg (default: $default): " "$var"
+    fi
+    eval "$var=\${$var:-$default};"
 }
 
-# only read from stdin if we're not being run from stdin
-if [ "$0" != bash ]; then
-    read_def 'Are we running as a portable machine? ' portable=n
-    read_def 'Are we a graphical installation?' graphical=y
-    read_def 'LVM volume group' vg="$(vgs | awk '{print $1}' | sed '2p;d')"
-    read_def 'Country code' country=CA
-    read_def 'Locale' locale=en_CA
-    read_def 'Timezone' timezone=America/Toronto
-    read_def 'Key file name' keyfilename=/crypto_keyfile.bin
-fi
+read_def 'Are we running as a portable machine? ' portable=n
+read_def 'Are we a graphical installation?' graphical=y
+read_def 'LVM volume group' vg="$(vgs | awk '{print $1}' | sed '2p;d')"
+read_def 'Country code' country=CA
+read_def 'Locale' locale=en_CA
+read_def 'Timezone' timezone=America/Toronto
+read_def 'Key file name' keyfilename=/crypto_keyfile.bin
 
 cut_out() {
     awk "{print \$${1:-1}}"
@@ -163,7 +163,7 @@ if ! [ -e "$keyfilename" ]; then
 else
     chmod 600 "$keyfilename"
 fi
-chmod 700 boot
+chmod 700 /boot
 if cryptsetup isLuks /dev/mapper/"$vg"-root; then
     cryptsetup luksAddKey /dev/mapper/"$vg"-root "$keyfilename"
     if [ "$graphical" = y ]; then
@@ -189,7 +189,7 @@ fi
 
 # keep the package cache clean
 mkdir etc/pacman.d/hooks
-cat > etc/pacman.d/hooks/clean-cache.hook <<EOF
+cat > etc/pacman.d/hooks/clean-cache.hook <<_EOF
 [Trigger]
 Operation = Upgrade
 Operation = Install
@@ -201,7 +201,7 @@ Target = *
 Description = Cleaning pacman cache...
 When = PostTransaction
 Exec = /usr/bin/paccache -r
-EOF
+_EOF
 
 # rebuild everything
 grub-mkconfig -o boot/grub/grub.cfg
@@ -213,4 +213,4 @@ hwclock --systohc
 $pacman -Syu
 pacman -Fy
 chmod 440 /etc/sudoers.d/*
-visudo -c || exit
+visudo -c
