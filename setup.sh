@@ -18,8 +18,10 @@ read_def() {
 	var="$(expr "$var" : '\(.*\)=')"
 	default="${!var}"
     fi
-    read -erp "$msg (default: $default): " "$var"
-    eval "$var=\${$var:-$default};"
+    if [ "$0" != bash ]; then
+	read -erp "$msg (default: $default): " "$var"
+    fi
+    "$var"="${$var:-$default}"
 }
 
 cut_out() {
@@ -37,13 +39,14 @@ read_def 'Key file name' keyfilename=/crypto_keyfile.bin
 table_add_idx() {
     local idx="$1" filename="$2"
     shift 2
-    if ! sed 's/#.*//' "$filename" | cut_out "$idx" | fgrep -xq "$1"; then
+    if ! sed 's/#.*//' "$filename" | cut_out "$idx" | grep -Fxq "$1"; then
 	echo "$@" >> "$filename"
     fi
 }
 
 table_add() {
     table_add 1 "$@"
+}
 
 # locale
 sed -i '1,24{p;d};/en_US\.UTF-8/s/^#//' /etc/locale.gen
@@ -173,7 +176,7 @@ if cryptsetup isLuks /dev/mapper/"$vg"-root; then
     fi
 
     aur_install pam-cryptsetup-git
-    table_add_idx 3 auth [default=ignore] pam_cryptsetup.so crypt-name=root
+    table_add_idx 3 auth '[default=ignore]' pam_cryptsetup.so crypt-name=root
 fi
 
 # hibernate/swap space
