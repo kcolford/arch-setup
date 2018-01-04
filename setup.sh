@@ -21,13 +21,16 @@ read_def() {
     eval "$var=\${$var:-$default}"
 }
 
-read_def 'Are we running as a portable machine? ' portable=n
-read_def 'Are we a graphical installation?' graphical=y
-read_def 'LVM volume group' vg="$(vgs | awk '{print $1}' | sed '2p;d')"
-read_def 'Country code' country=CA
-read_def 'Locale' locale=en_CA
-read_def 'Timezone' timezone=America/Toronto
-read_def 'Key file name' keyfilename=/crypto_keyfile.bin
+# only read from stdin if we're not being run from stdin
+if [ "$0" != bash ]; then
+    read_def 'Are we running as a portable machine? ' portable=n
+    read_def 'Are we a graphical installation?' graphical=y
+    read_def 'LVM volume group' vg="$(vgs | awk '{print $1}' | sed '2p;d')"
+    read_def 'Country code' country=CA
+    read_def 'Locale' locale=en_CA
+    read_def 'Timezone' timezone=America/Toronto
+    read_def 'Key file name' keyfilename=/crypto_keyfile.bin
+fi
 
 cut_out() {
     awk "{print \$${1:-1}}"
