@@ -21,7 +21,7 @@ read_def() {
     if [ "$0" != bash ]; then
 	read -erp "$msg (default: $default): " "$var"
     fi
-    "$var"="${$var:-$default}"
+    eval "$var"="${!var:-$default}"
 }
 
 cut_out() {
