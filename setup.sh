@@ -18,7 +18,7 @@ read_def() {
 	default="${!var}"
     fi
     read -erp "$msg (default: $default): " "$var"
-    eval "$var"="${!var:-$default}"
+    eval "$var=\${$var:-$default}"
 }
 
 read_def 'Are we running as a portable machine? ' portable=n
