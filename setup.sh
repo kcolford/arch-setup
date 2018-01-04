@@ -203,7 +203,7 @@ _EOF
 
 # rebuild everything
 grub-mkconfig -o boot/grub/grub.cfg
-if ls /sys/firmware/efi/efivars/ > /dev/null; then
+if [ -d /sys/firmware/efi/efivars/ ]; then
     grub-install
 fi
 mkinitcpio -P
