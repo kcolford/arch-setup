@@ -13,28 +13,26 @@ set -e
 read_def() {
     local msg="$1" var="$2" default
     if default="$(expr "$var" : '.*=\(.*\)')"; then
-	var="$(expr "$var" : '\(.*\)=.*')"
+	var="$(expr "$var" : '\(.*\)=')"
     else
+	var="$(expr "$var" : '\(.*\)=')"
 	default="${!var}"
     fi
-    if [ "$0" != bash ]; then
-	# only read from stdin if we're not being run from stdin
-	read -erp "$msg (default: $default): " "$var"
-    fi
+    read -erp "$msg (default: $default): " "$var"
     eval "$var=\${$var:-$default};"
 }
-
-read_def 'Are we running as a portable machine? ' portable=n
-read_def 'Are we a graphical installation?' graphical=y
-read_def 'LVM volume group' vg="$(vgs | awk '{print $1}' | sed '2p;d')"
-read_def 'Country code' country=CA
-read_def 'Locale' locale=en_CA
-read_def 'Timezone' timezone=America/Toronto
-read_def 'Key file name' keyfilename=/crypto_keyfile.bin
 
 cut_out() {
     awk "{print \$${1:-1}}"
 }
+
+read_def 'Are we running as a portable machine? ' portable=n
+read_def 'Are we a graphical installation?' graphical=y
+read_def 'LVM volume group' vg="$(vgs | cut_out | tail -n 1)"
+read_def 'Country code' country=CA
+read_def 'Locale' locale=en_CA
+read_def 'Timezone' timezone=America/Toronto
+read_def 'Key file name' keyfilename=/crypto_keyfile.bin
 
 table_add_idx() {
     local idx="$1" filename="$2"
