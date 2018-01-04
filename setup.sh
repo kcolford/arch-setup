@@ -45,7 +45,7 @@ table_add_idx() {
 }
 
 table_add() {
-    table_add 1 "$@"
+    table_add_idx 1 "$@"
 }
 
 # locale
