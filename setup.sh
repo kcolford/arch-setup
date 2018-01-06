@@ -26,7 +26,7 @@ fi
 
 # timezone
 ln -sf /usr/share/zoneinfo/"$timezone" /etc/localtime
-timedatectl set-ntp true
+systemctl enable systemd-timesyncd
 hwclock --systohc
 
 # more options
