@@ -3,79 +3,48 @@
 # internet connection. Assumed to be installed on an lvm system. Can
 # be run any number of times and will always produce the same system.
 
-# We use an unconventional way of declaring variables so disable some
-# checks.
-#
-# shellcheck disable=SC2154
+set -e
 
-read_def() {
-    local msg="$1" var="$2" default
-    if default="$(expr "$var" : '.*=\(.*\)')"; then
-	var="$(expr "$var" : '\(.*\)=')"
-    else
-	var="$(expr "$var" : '\(.*\)=')"
-	default="${!var}"
-    fi
-    if [ "$0" != bash ]; then
-	# If this script is being streamed through stdin then don't
-	# read input (we'll just read parts of the script).
-	read -erp "$msg (default: $default): " "$var"
-    fi
-    eval "$var"="${!var:-$default}"
-}
-
-cut_out() {
-    awk "{print \$${1:-1}}"
-}
-
-read_def 'Are we running as a portable machine? ' portable=n
-read_def 'Are we a graphical installation?' graphical=y
-read_def 'LVM volume group' vg="$(vgs | cut_out | tail -n 1)"
-read_def 'Country code' country=CA
-read_def 'Locale' locale=en_CA
-read_def 'Timezone' timezone=America/Toronto
-read_def 'Key file name' keyfilename=/crypto_keyfile.bin
-
-table_add_idx() {
-    local idx="$1" filename="$2"
-    shift 2
-    if ! sed 's/#.*//' "$filename" | cut_out "$idx" | grep -Fxq "$1"; then
-	echo "$@" >> "$filename"
-    fi
-}
-
-table_add() {
-    table_add_idx 1 "$@"
-}
+# lock the root account
+passwd -l root
 
 # locale
 sed -i '1,24{p;d};/en_US\.UTF-8/s/^#//' /etc/locale.gen
-sed -i "1,24{p;d};/$locale\\.UTF-8/s/^#//" /etc/locale.gen
+sed -i '1,24{p;d};/en_CA\.UTF-8/s/^#//' /etc/locale.gen
 locale-gen
 if ! [ -f /etc/locale.conf ]; then
-    echo LANG="$locale".UTF-8 > /etc/locale.conf
+    cat > /etc/locale.conf <<eof
+LANG=en_CA.UTF-8
+eof
 fi
 if ! [ -f /etc/vconsole.conf ]; then
-    echo KEYMAP=us > /etc/vconsole.conf
-    echo FONT=Lat2-Terminus16 >> /etc/vconsole.conf
+    cat > /etc/vconsole.conf <<eof
+KEYMAP=us
+FONT=Lat2-Terminus16
+eof
 fi
-
-# pacman mirror
-mirror_url="https://www.archlinux.org/mirrorlist/?country=$country"
-curl "$mirror_url" | sed 's/^#//' | rankmirrors - > /etc/pacman.d/mirrorlist
 
 # timezone
 ln -sf /usr/share/zoneinfo/"$timezone" /etc/localtime
-table_add /etc/environment TZ="$timezone"
+timedatectl set-ntp true
+hwclock --systohc
+
+# more options
+systemd-firstboot --prompt
+
+# pacman mirror
+mirror_url="https://www.archlinux.org/mirrorlist/?country=CA"
+curl "$mirror_url" | sed 's/^#//' | rankmirrors - > /etc/pacman.d/mirrorlist
 
 # update the system
-pacman="${PACMAN:-pacman} --noconfirm --needed"
-$pacman -Syu
+pacman_flags="--noconfirm --needed"
+pacman="${PACMAN:-pacman} $pacman_flags"
+$pacman -Syu base base-devel
 
-# systemd initramfs
-sed -i '/HOOKS=/s/udev //' /etc/mkinitcpio.conf
-sed -i '/HOOKS=/s/base autodetect/base systemd autodetect/' /etc/mkinitcpio.conf
-sed -i '/HOOKS=/s/modconf block/modconf sd-lvm2 sd-encrypt sd-vconsole block/' /etc/mkinitcpio.conf
+# multilib
+sed -i '/\[multilib]/,+1s/^#//' /etc/pacman.conf
+$pacman -Sy
+pacman -Fy
 
 # use grub with intel microcode
 $pacman -S grub
@@ -84,60 +53,99 @@ case "$(uname -m)" in
 	$pacman -S intel-ucode
 	;;
 esac
-
-# multilib
-sed -i '/\[multilib]/,+1s/^#//' /etc/pacman.conf
-$pacman -Sy
+grub-mkconfig -o /boot/grub/grub.cfg
+if [ -d /sys/firmware/efi/efivars/ ]; then
+    grub-install
+fi
 
 # completions for bash
 $pacman -S bash-completion
 
 # ssh
-if [ "$portable" != y ]; then
-    $pacman -S openssh
-    sed -i '/#PasswordAuthentication/{s/yes/no/;s/^#//}' /etc/ssh/sshd_config
-    systemctl enable --now sshd
-fi
-
-# ntp
-if [ "$portable" = y ]; then
-    $pacman -S chrony
-    systemctl enable --now chronyd
-else
-    timedatectl set-ntp true
-fi
+$pacman -S openssh
+sed -i '/#PasswordAuthentication/{s/yes/no/;s/^#//}' /etc/ssh/sshd_config
+systemctl enable --now sshd
 
 # kde
-if [ "$graphical" = y ]; then
-    $pacman -S plasma emacs chromium xterm
-    systemctl enable sddm
-fi
+$pacman -S plasma emacs chromium xterm
+systemctl enable sddm
 
 # yubikey
-if [ "$graphical" = y ]; then
-    $pacman -S pcsc-tools ccid libusb-compat libu2f-host
-    systemctl enable --now pcscd
-fi
+$pacman -S pcsc-tools ccid libusb-compat libu2f-host
+systemctl enable --now pcscd
 
 # personal configuration
-if [ "$graphical" = y ]; then
-    $pacman -S stow git
-fi
+$pacman -S stow git
+
+# certbot
+$pacman -S certbot
+cat > /etc/systemd/system/certbot.service <<eof
+[Unit]
+Description=Lets Encrypt renewal
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/certbot renew --quiet --agree-tos
+eof
+cat > /etc/systemd/system/certbot.timer <<eof
+[Unit]
+Description=Twice daily renewal of Let's Encrypt's certificates
+
+[Timer]
+OnCalendar=0/12:00:00
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+eof
+systemctl enable --now certbot.timer
+
+# database
+$pacman -S postgresql
+sudo -u postgres initdb --auth-host pam --auth-local peer /var/lib/postgres/data || true
+setfacl -m g:postgres:r /etc/shadow
+cat > /var/lib/postgres/data/postgresql.conf <<eof
+listen_addresses = '*'
+#ssl = on
+ssl_cert_file = '/etc/letsencrypt/live/$(hostname -f)/fullchain.pem'
+ssl_key_file = '/etc/letsencrypt/live/$(hostname -f)/privkey.pem'
+eof
+sudo systemctl enable --now postgresql
 
 # sudo (enable users in group wheel)
 echo '%wheel ALL=(ALL:ALL) ALL' > /etc/sudoers.d/wheel
+chmod 440 /etc/sudoers.d/wheel
+visudo -c
 
 # build user (no login user that can sudo without a password,
 # basically root)
-useradd --system -m build
-echo 'build ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/build
+useradd --system -m build || true
+echo "build ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/build
+chmod 440 /etc/sudoers.d/build
+visudo -c
 mkdir -p ~build/.gnupg/
-table_add ~build/.gnupg/gpg.conf auto-key-retrieve
+echo auto-key-retrieve > ~build/.gnupg/gpg.conf
 chown -R build:build ~build/.gnupg/
 chmod 700 ~build/.gnupg/
 
+mkdir -p /etc/pacman.d/hooks
+cat > /etc/pacman.d/hooks/cleanup.hook <<eof
+[Trigger]
+Operation = Remove
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = *
+
+[Action]
+Description = Clean the package cache.
+When = PostTransaction
+Exec = /usr/bin/paccache -r
+eof
+
 # aur
-$pacman -S base-devel git
+$pacman -S git
 aur_install() {
     local package="$1"
     local dir
@@ -147,7 +155,7 @@ aur_install() {
     sudo -u build git clone https://aur.archlinux.org/"$package" > /dev/null
     popd || exit
     pushd "$dir/$package" || return
-    sudo -u build makepkg -si --noconfirm "$@"
+    sudo -u build makepkg -si $pacman_flags "$@"
     popd || exit
     rm -rf "$dir"
 }
@@ -156,66 +164,3 @@ aur_install() {
 aur_install cower
 aur_install pacaur
 
-# luks and lvm, make sure to secure the keyfile (including the boot
-# directory)
-if ! [ -e "$keyfilename" ]; then
-    touch "$keyfilename"
-    chmod 600 "$keyfilename"
-    head -c 4096 /dev/random > "$keyfilename"
-else
-    chmod 600 "$keyfilename"
-fi
-chmod 700 /boot
-if cryptsetup isLuks /dev/mapper/"$vg"-root; then
-    cryptsetup luksAddKey /dev/mapper/"$vg"-root "$keyfilename"
-    if [ "$graphical" = y ]; then
-	sed -i "/FILES=/s/()/(\"$keyfilename\")/" /etc/mkinitcpio.conf
-	sed -i '/GRUB_ENABLE_CRYPTODISK/{s/^#//;s/=n/=y}' /etc/default/grub
-	table_add /etc/crypttab.initramfs root /dev/mapper/"$vg"-root "$keyfilename"
-    else
-	table_add /etc/crypttab.initramfs root /dev/mapper/"$vg"-root
-    fi
-
-    aur_install pam-cryptsetup-git
-    table_add_idx 3 auth '[default=ignore]' pam_cryptsetup.so crypt-name=root
-fi
-
-# hibernate/swap space
-if [ -e /dev/mapper/lvm-swap ]; then
-    sed -i '/GRUB_CMDLINE_LINUX_DEFAULT/s/quiet"/quiet resume=/dev/mapper/swap"/' /etc/default/grub
-    cryptsetup luksOpen --keyfile "$keyfilename" /dev/mapper/lvm-swap swap
-    mkswap /dev/mapper/swap
-    table_add /etc/crypttab.initramfs swap /dev/mapper/lvm-swap "$keyfilename"
-    table_add /etc/fstab /dev/mapper/swap none swap defaults 0 0
-fi
-
-# keep the package cache clean
-mkdir /etc/pacman.d/hooks
-cat > /etc/pacman.d/hooks/clean-cache.hook <<_EOF
-[Trigger]
-Operation = Upgrade
-Operation = Install
-Operation = Remove
-Type = Package
-Target = *
-
-[Action]
-Description = Cleaning pacman cache...
-When = PostTransaction
-Exec = /usr/bin/paccache -r
-_EOF
-
-# rebuild everything
-grub-mkconfig -o boot/grub/grub.cfg
-if [ -d /sys/firmware/efi/efivars/ ]; then
-    grub-install
-fi
-mkinitcpio -P
-hwclock --systohc
-$pacman -Syu
-pacman -Fy
-chmod 440 /etc/sudoers.d/*
-visudo -c || exit
-
-echo "You may have to run grub-install on one of the disks."
-echo "You 
