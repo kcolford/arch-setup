@@ -29,9 +29,6 @@ ln -sf /usr/share/zoneinfo/"$timezone" /etc/localtime
 systemctl enable systemd-timesyncd
 hwclock --systohc
 
-# more options
-systemd-firstboot --prompt
-
 # pacman mirror
 mirror_url="https://www.archlinux.org/mirrorlist/?country=CA"
 curl "$mirror_url" | sed 's/^#//' | rankmirrors - > /etc/pacman.d/mirrorlist
